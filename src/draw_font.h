@@ -29,6 +29,4 @@ bool draw_character(FT_Bitmap *bitmap, SourceData *source_data, Color *fg,
 bool draw_characters(BitMapCache *bitmap_cache, SourceData *data, Color *fg,
                      Color *bg, Characters *characters);
 
-uint32_t pack_color(Color *color, uint8_t alpha);
-
 #endif

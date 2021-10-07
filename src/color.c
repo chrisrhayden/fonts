@@ -4,6 +4,7 @@
 
 #include "color.h"
 
+// sigh, i cant find the SO post where i got this snippet
 Color *blend_color(Color *source, Color *destination) {
     uint8_t alpha =
         source->alpha + (destination->alpha * (255 - source->alpha) / 255);
@@ -33,6 +34,7 @@ Color *blend_color(Color *source, Color *destination) {
     return color;
 }
 
+// pack a color struct in to a 32bit integer
 uint32_t pack_color(Color *color, uint8_t alpha) {
     if (alpha == 0) {
         alpha = color->alpha;
@@ -49,6 +51,7 @@ uint32_t pack_color(Color *color, uint8_t alpha) {
     return packed_color;
 }
 
+// bland two colors and pack the result in to a 32bit integer
 uint32_t blend_and_pack(Color *source, Color *destination) {
     Color *color = blend_color(source, destination);
 

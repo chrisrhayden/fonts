@@ -1,8 +1,6 @@
 #include <locale.h>
 #include <math.h>
 
-#include "hashmap.h"
-
 #include <freetype2/ft2build.h>
 #include FT_FREETYPE_H
 #include <freetype/ftbitmap.h>
@@ -10,12 +8,16 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
+#include "hashmap.h"
+
 #include "color.h"
 #include "draw_font.h"
 #include "font_cache.h"
 
+#include "log.h"
+
 bool test_font() {
-    printf("testing fonts\n");
+    log_trace("testing fonts");
     // size_t size = 50;
     size_t size = 16;
 
@@ -35,25 +37,13 @@ bool test_font() {
         return false;
     }
 
-    printf("font cache initialized\n");
+    log_trace("font cache initialized");
 
-    FT_Bitmap *bitmap;
-
-    wchar_t key = 33;
-
-    printf("getting value\n");
-    get_value_hashmap(font_cache->bitmap_cache, &key, bitmap);
-
-    if (bitmap == NULL) {
-        return false;
-    }
-    printf("got value\n");
-
-    // int character_box = (CHARACTER_LEN / 2) + 2;
+    // the amount of characters for the rows and width
     size_t character_box = 18;
     if (character_box * character_box <= CHARACTER_LEN) {
-        printf("cant hold enough characters characters %ld - len %ld\n",
-               character_box * character_box, CHARACTER_LEN);
+        log_trace("cant hold enough characters characters %ld - len %ld",
+                  character_box * character_box, CHARACTER_LEN);
 
         drop_font_cache(font_cache);
 
@@ -61,6 +51,7 @@ bool test_font() {
     }
 
     // max character size by the amount of characters per row/column
+    // add 2 for each character for a 2 pixel border around each character
     size_t width = (font_cache->max_width + 2) * character_box;
     size_t height = (font_cache->max_height + 2) * character_box;
 
@@ -84,27 +75,27 @@ bool test_font() {
 
     uint32_t color = pack_color(&green, 0);
 
-    for (int i = 0; i < (width * height); ++i) {
+    for (int i = 0; i < data.buffer_len; ++i) {
         data.buffer[i] = color;
     }
 
-    printf("drawing characters\n");
+    log_trace("drawing characters");
     bool success_bool = draw_characters(font_cache->bitmap_cache, &data, &red,
                                         &green, &characters);
     if (success_bool == false) {
-        printf("failed to draw font\n");
+        log_error("failed to draw font");
     }
 
     drop_font_cache(font_cache);
 
-    printf("drew font to buffer\n");
+    log_trace("drawing characters to buffer");
     char *filename = "./out/ascii_test.png";
 
     int success = stbi_write_png(filename, data.width, data.height, 4,
                                  data.buffer, data.width * sizeof(uint32_t));
 
-    printf("created png\n");
-    free(buffer);
+    log_trace("created png");
+    free(data.buffer);
 
     if (success) {
         return true;
@@ -115,6 +106,8 @@ bool test_font() {
 
 int main() {
     setlocale(LC_CTYPE, "");
+
+    log_set_level(LOG_TRACE);
 
     if (test_font()) {
         return 0;

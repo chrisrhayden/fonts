@@ -3,6 +3,8 @@
 #include <freetype2/ft2build.h>
 #include FT_FREETYPE_H
 
+#include "log.h"
+
 #include "draw_font.h"
 #include "font_cache.h"
 
@@ -39,14 +41,14 @@ wchar_t CHARACTER_ARRAY[254] = {
     0x00B2, 0x25A0};
 
 uint64_t char_hash(wchar_t *x) {
-    return integer_hash64(*x);
+    return integer_hash32(*x);
 }
 
 bool char_comp(wchar_t *key_1, wchar_t *key_2) {
     return (*key_1 == *key_2);
 }
 
-void bitmap_drop(wchar_t *key, GlyphMap *glyph_map) {
+void glyph_map_drop(wchar_t *key, GlyphMap *glyph_map) {
     free(key);
     free(glyph_map->bitmap->buffer);
     free(glyph_map->bitmap->palette);
@@ -55,9 +57,10 @@ void bitmap_drop(wchar_t *key, GlyphMap *glyph_map) {
 }
 
 void drop_font_cache(FontCache *cache) {
-    if (cache->face) {
-        FT_Done_Face(cache->face);
-    }
+    // FT_Done_FreeType should free the face
+    // if (cache->face) {
+    //     FT_Done_Face(cache->face);
+    // }
 
     if (cache->library) {
         FT_Done_FreeType(cache->library);
@@ -70,31 +73,9 @@ void drop_font_cache(FontCache *cache) {
     free(cache);
 }
 
-bool make_bitmap(FontCache *font_cache, wchar_t c) {
-    FT_UInt glyph_index = FT_Get_Char_Index(font_cache->face, c);
-
-    if (FT_Load_Glyph(font_cache->face, glyph_index, FT_LOAD_TARGET_LIGHT) !=
-        0) {
-        fprintf(stderr, "could not load glyph for %c", c);
-        return false;
-    }
-
-    if (FT_Render_Glyph(font_cache->face->glyph, FT_RENDER_MODE_LIGHT) != 0) {
-        fprintf(stderr, "could not render glyph for %c", c);
-        return false;
-    }
-
-    // {
-    //     unsigned int rows;
-    //     unsigned int width;
-    //     int pitch;
-    //     unsigned char *buffer;
-    //     unsigned short num_grays;
-    //     unsigned char pixel_mode;
-    //     unsigned char palette_mode;
-    //     void *palette;
-    // }
+FT_Bitmap *allocate_bitmap() {
     FT_Bitmap *bitmap = malloc(sizeof(*bitmap));
+
     bitmap->buffer = NULL;
     bitmap->palette = NULL;
     bitmap->palette_mode = 0;
@@ -104,9 +85,28 @@ bool make_bitmap(FontCache *font_cache, wchar_t c) {
     bitmap->pixel_mode = 0;
     bitmap->pitch = 0;
 
+    return bitmap;
+}
+
+bool make_bitmap(FontCache *font_cache, wchar_t c) {
+    FT_UInt glyph_index = FT_Get_Char_Index(font_cache->face, c);
+
+    if (FT_Load_Glyph(font_cache->face, glyph_index, FT_LOAD_TARGET_LIGHT) !=
+        0) {
+        log_error("could not load glyph for %c", c);
+        return false;
+    }
+
+    if (FT_Render_Glyph(font_cache->face->glyph, FT_RENDER_MODE_LIGHT) != 0) {
+        log_error("could not render glyph for %c", c);
+        return false;
+    }
+
+    FT_Bitmap *bitmap = allocate_bitmap();
+
     if (FT_Bitmap_Copy(font_cache->library, &font_cache->face->glyph->bitmap,
                        bitmap) != 0) {
-        fprintf(stderr, "could not copy bitmap\n");
+        log_error("could not copy bitmap");
         free(bitmap);
 
         return false;
@@ -115,8 +115,7 @@ bool make_bitmap(FontCache *font_cache, wchar_t c) {
     wchar_t *key = malloc(sizeof(wchar_t));
 
     if (key == NULL) {
-        fprintf(stderr, "could not allocate key\n");
-        free(bitmap);
+        log_error("could not allocate key");
         return false;
     }
 
@@ -127,6 +126,10 @@ bool make_bitmap(FontCache *font_cache, wchar_t c) {
     GlyphMap *glyph_map = malloc(sizeof(*glyph_map));
 
     if (glyph_map == NULL) {
+        log_error("could not allocate glyph_map");
+
+        free(key);
+
         return false;
     }
 
@@ -138,7 +141,8 @@ bool make_bitmap(FontCache *font_cache, wchar_t c) {
     insert_hashmap(font_cache->bitmap_cache, key, glyph_map, result);
 
     if (result != Success) {
-        fprintf(stderr, "could not insert in to hashmap");
+        log_error("could not insert in to hashmap");
+
         free(bitmap);
 
         free(key);
@@ -160,6 +164,7 @@ bool make_bitmap(FontCache *font_cache, wchar_t c) {
 bool make_bitmaps(FontCache *font_cache, int point_size,
                   Characters *characters) {
     if (FT_Set_Char_Size(font_cache->face, 0, point_size * 64, 0, 72) != 0) {
+        log_error("could not set char size");
         return false;
     }
 
@@ -169,9 +174,6 @@ bool make_bitmaps(FontCache *font_cache, int point_size,
         success = make_bitmap(font_cache, characters->char_array[i]);
     }
 
-    // font_cache->max_height += 10;
-    // font_cache->max_width += 10;
-
     return success;
 }
 
@@ -179,6 +181,7 @@ bool init_face_cache(FontCache *cache, char face_path[], int point_size,
                      Characters *characters) {
     FT_Face face;
     if (FT_New_Face(cache->library, face_path, 0, &face) != 0) {
+        log_error("could not initialize freetype face");
         return false;
     }
 
@@ -195,21 +198,22 @@ FontCache *allocate_cache() {
     }
 
     cache->library = NULL;
-
-    cache->bitmap_cache = NULL;
     cache->face = NULL;
 
-    init_hashmap(cache->bitmap_cache, char_hash, char_comp, bitmap_drop);
+    cache->max_height = 0;
+    cache->max_width = 0;
+
+    cache->bitmap_cache = NULL;
+
+    init_hashmap(cache->bitmap_cache, char_hash, char_comp, glyph_map_drop);
 
     if (cache->bitmap_cache == NULL) {
+        log_error("could not initialize bitmap cache");
+
         drop_font_cache(cache);
 
         return NULL;
     }
-
-    cache->max_height = 0;
-    cache->max_width = 0;
-    cache->face = NULL;
 
     return cache;
 }
@@ -217,26 +221,31 @@ FontCache *allocate_cache() {
 FontCache *init_font_cache(char font_path[], int point_size,
                            Characters *characters) {
     if (font_path == NULL) {
-        fprintf(stderr, "font path is null\n");
+        log_error("font path is null");
         return NULL;
     } else if (access(font_path, F_OK) != 0) {
-        fprintf(stderr, "font path dose not exist\n");
+        log_error("font path dose not exist");
         return NULL;
     }
 
     FontCache *cache = allocate_cache();
 
     if (cache == NULL) {
+        log_error("could not allocate font cache");
         return NULL;
     }
 
     if (FT_Init_FreeType(&cache->library) != 0) {
+        log_error("could not initialize freetype");
+
         drop_font_cache(cache);
 
         return NULL;
     }
 
     if (init_face_cache(cache, font_path, point_size, characters) == false) {
+        log_error("could not initialize face cache");
+
         drop_font_cache(cache);
 
         return NULL;
